@@ -19,6 +19,8 @@
 
 package net.william278.husksync;
 
+import com.tcoded.folialib.FoliaLib;
+import com.tcoded.folialib.impl.ServerImplementation;
 import net.kyori.adventure.platform.bukkit.BukkitAudiences;
 import net.william278.annotaml.Annotaml;
 import net.william278.desertwell.util.Version;
@@ -75,6 +77,7 @@ public class BukkitHuskSync extends JavaPlugin implements HuskSync {
     private Settings settings;
     private Locales locales;
     private List<Migrator> availableMigrators;
+    private ServerImplementation scheduler;
 
     private BukkitAudiences audiences;
     private static BukkitHuskSync instance;
@@ -95,6 +98,9 @@ public class BukkitHuskSync extends JavaPlugin implements HuskSync {
 
     @Override
     public void onEnable() {
+
+        scheduler = new FoliaLib(this).getImpl();
+
         // Initialize HuskSync
         final AtomicBoolean initialized = new AtomicBoolean(true);
         try {
@@ -291,6 +297,10 @@ public class BukkitHuskSync extends JavaPlugin implements HuskSync {
         } else {
             getLogger().log(level, message);
         }
+    }
+
+    public @NotNull ServerImplementation getScheduler() {
+        return this.scheduler;
     }
 
     @NotNull

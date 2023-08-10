@@ -96,7 +96,7 @@ public class BukkitPlayer extends OnlineUser {
 
     @Override
     public CompletableFuture<Void> setStatus(@NotNull StatusData statusData, @NotNull Settings settings) {
-        return CompletableFuture.runAsync(() -> {
+        return BukkitHuskSync.getInstance().getScheduler().runAtEntity(player,() -> {
             // Set max health
             double currentMaxHealth = Objects.requireNonNull(player.getAttribute(Attribute.GENERIC_MAX_HEALTH)).getBaseValue();
             if (settings.getSynchronizationFeature(Settings.SynchronizationFeature.MAX_HEALTH)) {
@@ -112,7 +112,7 @@ public class BukkitPlayer extends OnlineUser {
                 if (statusData.health != currentHealth) {
                     final double healthToSet = currentHealth > currentMaxHealth ? currentMaxHealth : statusData.health;
                     final double maxHealth = currentMaxHealth;
-                    Bukkit.getScheduler().runTask(plugin, () -> {
+                    BukkitHuskSync.getInstance().getScheduler().runAtEntity(player, () -> {
                         try {
                             player.setHealth(Math.min(healthToSet, maxHealth));
                         } catch (IllegalArgumentException e) {
@@ -149,11 +149,11 @@ public class BukkitPlayer extends OnlineUser {
                 player.setExp(statusData.expProgress);
             }
             if (settings.getSynchronizationFeature(Settings.SynchronizationFeature.GAME_MODE)) {
-                Bukkit.getScheduler().runTask(plugin, () ->
+                BukkitHuskSync.getInstance().getScheduler().runAtEntity(player, () ->
                         player.setGameMode(GameMode.valueOf(statusData.gameMode)));
             }
             if (settings.getSynchronizationFeature(Settings.SynchronizationFeature.LOCATION)) {
-                Bukkit.getScheduler().runTask(plugin, () -> {
+                BukkitHuskSync.getInstance().getScheduler().runAtEntity(player, () -> {
                     if (statusData.isFlying) {
                         player.setAllowFlight(true);
                         player.setFlying(true);
@@ -161,7 +161,7 @@ public class BukkitPlayer extends OnlineUser {
                     player.setFlying(false);
                 });
             }
-        });
+        }).handle((a,b) -> null);
     }
 
     @Override
@@ -178,7 +178,7 @@ public class BukkitPlayer extends OnlineUser {
     public CompletableFuture<Void> setInventory(@NotNull ItemData itemData) {
         return BukkitSerializer.deserializeInventory(itemData.serializedItems).thenApplyAsync(contents -> {
             final CompletableFuture<Void> inventorySetFuture = new CompletableFuture<>();
-            Bukkit.getScheduler().runTask(plugin, () -> {
+            BukkitHuskSync.getInstance().getScheduler().runAtEntity(player,() -> {
                 this.clearInventoryCraftingSlots();
                 player.setItemOnCursor(null);
                 player.getInventory().setContents(contents.getContents());
@@ -213,7 +213,7 @@ public class BukkitPlayer extends OnlineUser {
     public CompletableFuture<Void> setEnderChest(@NotNull ItemData enderChestData) {
         return BukkitSerializer.deserializeItemStackArray(enderChestData.serializedItems).thenApplyAsync(contents -> {
             final CompletableFuture<Void> enderChestSetFuture = new CompletableFuture<>();
-            Bukkit.getScheduler().runTask(plugin, () -> {
+            BukkitHuskSync.getInstance().getScheduler().runAtEntity(player, () -> {
                 player.getEnderChest().setContents(contents);
                 enderChestSetFuture.complete(null);
             });
@@ -232,7 +232,7 @@ public class BukkitPlayer extends OnlineUser {
         return BukkitSerializer.deserializePotionEffectArray(potionEffectData.serializedPotionEffects)
                 .thenApplyAsync(effects -> {
                     final CompletableFuture<Void> potionEffectsSetFuture = new CompletableFuture<>();
-                    Bukkit.getScheduler().runTask(plugin, () -> {
+                    BukkitHuskSync.getInstance().getScheduler().runAtEntity(player, () -> {
                         for (PotionEffect effect : player.getActivePotionEffects()) {
                             player.removePotionEffect(effect.getType());
                         }
@@ -270,7 +270,7 @@ public class BukkitPlayer extends OnlineUser {
 
     @Override
     public CompletableFuture<Void> setAdvancements(@NotNull List<AdvancementData> advancementData) {
-        return CompletableFuture.runAsync(() -> Bukkit.getScheduler().runTask(plugin, () -> {
+        return BukkitHuskSync.getInstance().getScheduler().runNextTick(() -> {
 
             // Temporarily disable advancement announcing if needed
             boolean announceAdvancementUpdate = false;
@@ -288,7 +288,8 @@ public class BukkitPlayer extends OnlineUser {
             final AtomicBoolean correctExperience = new AtomicBoolean(false);
 
             // Run asynchronously as advancement setting is expensive
-            CompletableFuture.runAsync(() -> {
+            var scheduler = BukkitHuskSync.getInstance().getScheduler();
+            scheduler.runAtEntity(player,() -> {
                 // Apply the advancements to the player
                 final Iterator<Advancement> serverAdvancements = Bukkit.getServer().advancementIterator();
                 while (serverAdvancements.hasNext()) {
@@ -302,21 +303,19 @@ public class BukkitPlayer extends OnlineUser {
                                 record.completedCriteria.keySet().stream()
                                         .filter(criterion -> !playerProgress.getAwardedCriteria().contains(criterion))
                                         .forEach(criterion -> {
-                                            Bukkit.getScheduler().runTask(plugin,
+                                            scheduler.runAtEntity(player,
                                                     () -> player.getAdvancementProgress(advancement).awardCriteria(criterion));
                                             correctExperience.set(true);
                                         });
 
                                 // Revoke all criteria that the player does have but should not
                                 new ArrayList<>(playerProgress.getAwardedCriteria()).stream().filter(criterion -> !record.completedCriteria.containsKey(criterion))
-                                        .forEach(criterion -> Bukkit.getScheduler().runTask(plugin,
-                                                () -> player.getAdvancementProgress(advancement).revokeCriteria(criterion)));
+                                        .forEach(criterion -> scheduler.runAtEntity(player,() -> player.getAdvancementProgress(advancement).revokeCriteria(criterion)));
 
                             },
                             // Revoke the criteria as the player shouldn't have any
                             () -> new ArrayList<>(playerProgress.getAwardedCriteria()).forEach(criterion ->
-                                    Bukkit.getScheduler().runTask(plugin,
-                                            () -> player.getAdvancementProgress(advancement).revokeCriteria(criterion))));
+                                    scheduler.runAtEntity(player, () -> player.getAdvancementProgress(advancement).revokeCriteria(criterion))));
 
                     // Update the player's experience in case the advancement changed that
                     if (correctExperience.get()) {
@@ -327,13 +326,15 @@ public class BukkitPlayer extends OnlineUser {
                 }
 
                 // Re-enable announcing advancements (back on main thread again)
-                Bukkit.getScheduler().runTask(plugin, () -> {
+                BukkitHuskSync.getInstance().getScheduler().runNextTick(() -> {
                     if (finalAnnounceAdvancementUpdate) {
                         player.getWorld().setGameRule(GameRule.ANNOUNCE_ADVANCEMENTS, true);
                     }
                 });
             });
-        }));
+        }).handle((a, b) -> {
+            return null;
+        } );
     }
 
     @Override
@@ -391,7 +392,7 @@ public class BukkitPlayer extends OnlineUser {
 
     @Override
     public CompletableFuture<Void> setStatistics(@NotNull StatisticsData statisticsData) {
-        return CompletableFuture.runAsync(() -> {
+        return BukkitHuskSync.getInstance().getScheduler().runAtEntity(player, () -> {
             // Set generic statistics
             for (String statistic : statisticsData.untypedStatistics.keySet()) {
                 try {
@@ -440,9 +441,12 @@ public class BukkitPlayer extends OnlineUser {
                     }
                 }
             }
-        });
+        }).handle((a,b) -> {return null;});
     }
 
+//        new LocationData(player.getWorld().getName(), player.getWorld().getUID(), player.getWorld().getEnvironment().name(),
+//                            player.getLocation().getX(), player.getLocation().getY(), player.getLocation().getZ(),
+//                            player.getLocation().getYaw(), player.getLocation().getPitch())
     @Override
     public CompletableFuture<LocationData> getLocation() {
         return CompletableFuture.supplyAsync(() ->
@@ -463,7 +467,7 @@ public class BukkitPlayer extends OnlineUser {
                     .valueOf(locationData.worldEnvironment)).findFirst().ifPresent(bukkitWorld::set);
         }
         if (bukkitWorld.get() != null) {
-            Bukkit.getScheduler().runTask(plugin, () -> {
+            BukkitHuskSync.getInstance().getScheduler().runAtEntity(player, () -> {
                 player.teleport(new Location(bukkitWorld.get(),
                         locationData.x, locationData.y, locationData.z,
                         locationData.yaw, locationData.pitch), PlayerTeleportEvent.TeleportCause.PLUGIN);
@@ -501,7 +505,7 @@ public class BukkitPlayer extends OnlineUser {
 
     @Override
     public CompletableFuture<Void> setPersistentDataContainer(@NotNull PersistentDataContainerData container) {
-        return CompletableFuture.runAsync(() -> {
+        return BukkitHuskSync.getInstance().getScheduler().runAtEntity(player, () -> {
             player.getPersistentDataContainer().getKeys().forEach(namespacedKey ->
                     player.getPersistentDataContainer().remove(namespacedKey));
             container.getTags().forEach(keyString -> {
@@ -520,7 +524,7 @@ public class BukkitPlayer extends OnlineUser {
                     "Could not write " + player.getName() + "'s persistent data map, skipping!");
             throwable.printStackTrace();
             return null;
-        });
+        }).handle((a,b) -> null);
     }
 
 
@@ -592,7 +596,7 @@ public class BukkitPlayer extends OnlineUser {
             });
 
             // Display the GUI (synchronously; on the main server thread)
-            Bukkit.getScheduler().runTask(plugin, () -> gui.open(player));
+            BukkitHuskSync.getInstance().getScheduler().runAtEntity(player, () -> gui.open(player));
         }).exceptionally(throwable -> {
             // Handle exceptions
             updatedData.completeExceptionally(throwable);
