@@ -9,6 +9,8 @@ dependencies {
     implementation 'net.kyori:adventure-platform-bukkit:4.3.0'
     implementation 'dev.triumphteam:triumph-gui:3.1.5'
 
+    implementation 'com.tcoded:folialib:0.2.4'
+
     compileOnly 'org.spigotmc:spigot-api:1.16.5-R0.1-SNAPSHOT'
     compileOnly 'commons-io:commons-io:2.13.0'
     compileOnly 'de.themoep:minedown-adventure:1.7.2-SNAPSHOT'
@@ -25,6 +27,7 @@ shadowJar {
         exclude(dependency('com.mojang:brigadier'))
     }
 
+    relocate 'com.tcoded.folialib', 'net.william278.husksync.libraries.folialib'
     relocate 'org.apache.commons.io', 'net.william278.husksync.libraries.commons.io'
     relocate 'com.google.gson', 'net.william278.husksync.libraries.gson'
     relocate 'de.themoep', 'net.william278.husksync.libraries'
